@@ -7,7 +7,7 @@ A minimalist workout logbook and performance tracker built with Jetpack Compose 
 - **Package name:** `com.silvzr.getonup`
 - **UI toolkit:** Jetpack Compose with Material 3 Expressive styling
 - **Minimum SDK:** 24 (Android 7.0)
-- **Debug build:** Shrunk and minified via `assembleDebug` with a consistent, repository-stored debug keystore.
+- **Debug build:** Shrunk and minified via `assembleDebug` with a consistent debug keystore cached at `~/.android/debug.keystore`.
 
 ## Getting started
 
@@ -19,6 +19,12 @@ cd d:\GitHub\GetOnUp
 ```
 
 The resulting APK can be found under `app/build/outputs/apk/debug/`.
+
+### Debug keystore
+
+- Local builds rely on the Android default debug keystore at `~/.android/debug.keystore`.
+- GitHub Actions caches this keystore after the first run so subsequent `assembleDebug` builds produce APKs signed with the same key.
+- To override the location, set the `ANDROID_DEBUG_KEYSTORE` environment variable before running Gradle.
 
 ## UI roadmap
 
