@@ -26,17 +26,19 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.silvzr.getonup.ui.theme.GetOnUpTheme
+import androidx.core.view.WindowCompat
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             GetOnUpTheme {
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     containerColor = MaterialTheme.colorScheme.background,
                     contentColor = MaterialTheme.colorScheme.onBackground,
-                    topBar = { GetOnUpToolbar() }
+                    bottomBar = { GetOnUpToolbar() }
                 ) { innerPadding ->
                     Box(
                         modifier = Modifier
@@ -51,19 +53,20 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun GetOnUpToolbar(modifier: Modifier = Modifier) {
-    val iconTint = Color(0xFFE3E3E3)
-
     Surface(
-        modifier = modifier.fillMaxWidth(),
-        tonalElevation = 6.dp,
-        shadowElevation = 6.dp,
-        color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp)
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 24.dp),
+        shape = MaterialTheme.shapes.large,
+        tonalElevation = 8.dp,
+        shadowElevation = 8.dp,
+        color = MaterialTheme.colorScheme.secondaryContainer
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(64.dp)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 4.dp),
             contentAlignment = Alignment.Center
         ) {
             IconButton(
@@ -73,7 +76,7 @@ fun GetOnUpToolbar(modifier: Modifier = Modifier) {
                 Icon(
                     imageVector = Icons.Outlined.Timeline,
                     contentDescription = stringResource(id = R.string.nav_timeline),
-                    tint = iconTint
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
 
@@ -84,7 +87,7 @@ fun GetOnUpToolbar(modifier: Modifier = Modifier) {
                 Icon(
                     imageVector = Icons.Outlined.CalendarToday,
                     contentDescription = stringResource(id = R.string.nav_calendar),
-                    tint = iconTint
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
 
@@ -95,7 +98,7 @@ fun GetOnUpToolbar(modifier: Modifier = Modifier) {
                 Icon(
                     imageVector = Icons.Outlined.FitnessCenter,
                     contentDescription = stringResource(id = R.string.nav_workouts),
-                    tint = iconTint
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
         }
