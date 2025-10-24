@@ -4,4 +4,5 @@
     <string name="nav_timeline">Timeline</string>
     <string name="nav_calendar">Calendar</string>
     <string name="nav_workouts">Workouts</string>
+    <string name="nav_create_workout">Create workout</string>
 </resources>
