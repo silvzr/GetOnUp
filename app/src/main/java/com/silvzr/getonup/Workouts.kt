@@ -21,8 +21,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.ArrowForward
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
@@ -174,7 +177,7 @@ class WorkoutsState internal constructor(
             repository.deletePlan(planId)
         }
         if (selectedPlanId.value == planId) {
-            selectedPlanId.value = null
+            selectedPlanId.value = uiState.plans.firstOrNull { it.id != planId }?.id
         }
     }
 
@@ -239,7 +242,7 @@ fun WorkoutsScreen(
         WorkoutsHeader(
             onSettingsClick = onSettingsClick,
             modifier = Modifier
-                .padding(start = 24.dp, end = 24.dp, bottom = 4.dp)
+                .padding(start = 24.dp, end = 8.dp, bottom = 4.dp)
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -302,11 +305,14 @@ private fun WorkoutsHeader(onSettingsClick: () -> Unit, modifier: Modifier = Mod
     ) {
         Text(
             text = stringResource(id = R.string.workouts_title),
-            style = MaterialTheme.typography.headlineLarge,
+            style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground
         )
 
-        IconButton(onClick = onSettingsClick) {
+        IconButton(
+            onClick = onSettingsClick,
+            modifier = Modifier.padding(start = 8.dp)
+        ) {
             Icon(
                 imageVector = Icons.Outlined.Settings,
                 contentDescription = stringResource(id = R.string.workouts_settings_cd)
@@ -501,7 +507,10 @@ private fun WorkoutLargeCardContent(
             Spacer(modifier = Modifier.weight(1f))
 
             OutlinedButton(onClick = { onEditPlan(plan.id) }) {
-                Text(text = stringResource(id = R.string.workouts_edit))
+                Icon(
+                    imageVector = Icons.Outlined.Edit,
+                    contentDescription = stringResource(id = R.string.workouts_edit)
+                )
             }
 
             Spacer(modifier = Modifier.width(8.dp))
@@ -510,8 +519,9 @@ private fun WorkoutLargeCardContent(
                 onClick = { onSetCurrent(plan.id) },
                 enabled = !plan.isCurrent
             ) {
-                Text(
-                    text = if (plan.isCurrent) {
+                Icon(
+                    imageVector = if (plan.isCurrent) Icons.Filled.Star else Icons.Outlined.Check,
+                    contentDescription = if (plan.isCurrent) {
                         stringResource(id = R.string.workouts_current)
                     } else {
                         stringResource(id = R.string.workouts_set_current)
