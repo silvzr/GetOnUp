@@ -15,4 +15,5 @@
     <string name="workouts_exercises_preview">Preview your exercise lineup and manage details when you are ready.</string>
     <string name="workouts_exercises_manage">Manage exercises</string>
     <string name="workouts_exercises_empty_preview">No exercises to preview yet.</string>
+    <string name="workouts_exercises_more">+%1$d more</string>
 </resources>

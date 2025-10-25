@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -33,10 +34,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,46 +47,260 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.silvzr.getonup.ui.theme.GetOnUpTheme
+import java.util.UUID
+import kotlin.math.max
 
-/** Represents a workout plan item rendered in the carousel. */
+/** Represents a workout plan rendered inside the carousel. */
+@Immutable
 data class WorkoutPlan(
-    val id: String,
+    val id: String = UUID.randomUUID().toString(),
     val name: String,
     val subtitle: String? = null,
     val description: String? = null,
     val isCurrent: Boolean = false
 )
 
+/** Strongly-typed identifier for exercises following a zero-padded numeric sequence. */
+@JvmInline
+value class ExerciseId internal constructor(val value: String) {
+    val number: Int get() = value.toInt()
+
+    override fun toString(): String = value
+
+    companion object {
+        private const val MIN_VALUE = 1
+        internal const val MAX_VALUE = 9999
+
+        fun fromNumber(number: Int): ExerciseId {
+            require(number in MIN_VALUE..MAX_VALUE) {
+                "Exercise id must stay within 0001..%04d".format(MAX_VALUE)
+            }
+            return ExerciseId(number.toString().padStart(4, '0'))
+        }
+    }
+}
+
+/** Lightweight representation of an exercise. */
+@Immutable
+data class Exercise(
+    val id: ExerciseId,
+    val name: String,
+    val summary: String? = null
+)
+
+/** UI contract consumed by [WorkoutsScreen]. */
+@Immutable
+data class WorkoutsUiState(
+    val plans: List<WorkoutPlan> = emptyList(),
+    val selectedPlanId: String? = null,
+    val currentPlanId: String? = null,
+    val exercises: List<Exercise> = emptyList()
+)
+
+/** Mutable holder for workouts-related state, responsible for id generation and user actions. */
+@Stable
+class WorkoutsState(
+    initialPlans: List<WorkoutPlan> = emptyList(),
+    initialExercises: List<Exercise> = emptyList()
+) {
+    private var nextExerciseNumber: Int = nextExerciseSeed(initialExercises)
+
+    private var _uiState by mutableStateOf(
+        WorkoutsUiState(
+            plans = initialPlans,
+            selectedPlanId = resolveInitialSelection(initialPlans),
+            currentPlanId = initialPlans.firstOrNull { it.isCurrent }?.id,
+            exercises = initialExercises
+        )
+    )
+    val uiState: WorkoutsUiState get() = _uiState
+
+    var isSettingsRequested by mutableStateOf(false)
+        private set
+    var planEditRequest: String? by mutableStateOf(null)
+        private set
+    var isExerciseManagementRequested by mutableStateOf(false)
+        private set
+
+    fun updatePlans(plans: List<WorkoutPlan>) {
+        val selected = _uiState.selectedPlanId
+        refreshState(
+            plans = plans,
+            selectedPlanId = plans.takeIf { it.any { plan -> plan.id == selected } }?.let { selected }
+                ?: resolveInitialSelection(plans)
+        )
+    }
+
+    fun upsertPlan(plan: WorkoutPlan) {
+        val updated = _uiState.plans.toMutableList().apply {
+            val index = indexOfFirst { it.id == plan.id }
+            if (index >= 0) {
+                this[index] = plan
+            } else {
+                add(plan)
+            }
+        }
+        refreshState(
+            plans = updated,
+            selectedPlanId = plan.id
+        )
+    }
+
+    fun removePlan(planId: String) {
+        refreshState(plans = _uiState.plans.filterNot { it.id == planId })
+    }
+
+    fun selectPlan(planId: String) {
+        if (_uiState.plans.any { it.id == planId }) {
+            refreshState(selectedPlanId = planId)
+        }
+    }
+
+    fun setCurrentPlan(planId: String) {
+        if (_uiState.plans.none { it.id == planId }) return
+
+        val updatedPlans = _uiState.plans.map {
+            if (it.id == planId) it.copy(isCurrent = true) else it.copy(isCurrent = false)
+        }
+        refreshState(
+            plans = updatedPlans,
+            selectedPlanId = planId
+        )
+    }
+
+    fun requestSettings() {
+        isSettingsRequested = true
+    }
+
+    fun consumeSettingsRequest() {
+        isSettingsRequested = false
+    }
+
+    fun requestPlanEdit(planId: String) {
+        planEditRequest = planId
+    }
+
+    fun consumePlanEditRequest() {
+        planEditRequest = null
+    }
+
+    fun requestExerciseManagement() {
+        isExerciseManagementRequested = true
+    }
+
+    fun consumeExerciseManagementRequest() {
+        isExerciseManagementRequested = false
+    }
+
+    fun createEmptyPlan(): WorkoutPlan {
+        val newPlan = WorkoutPlan(
+            name = "Untitled plan",
+            subtitle = null,
+            description = null,
+            isCurrent = _uiState.plans.isEmpty()
+        )
+        upsertPlan(newPlan)
+        return newPlan
+    }
+
+    fun updateExercises(exercises: List<Exercise>) {
+        nextExerciseNumber = max(nextExerciseSeed(exercises), nextExerciseNumber)
+        refreshState(exercises = exercises)
+    }
+
+    fun addExercise(name: String, summary: String? = null): Exercise {
+        val id = generateExerciseId()
+        val exercise = Exercise(id = id, name = name, summary = summary)
+        refreshState(exercises = _uiState.exercises + exercise)
+        return exercise
+    }
+
+    fun deleteExercise(id: ExerciseId) {
+        refreshState(exercises = _uiState.exercises.filterNot { it.id == id })
+    }
+
+    fun generateExerciseId(): ExerciseId {
+        check(nextExerciseNumber <= ExerciseId.MAX_VALUE) {
+            "Maximum number of exercises (%d) reached".format(ExerciseId.MAX_VALUE)
+        }
+        return ExerciseId.fromNumber(nextExerciseNumber++)
+    }
+
+    private fun refreshState(
+        plans: List<WorkoutPlan> = _uiState.plans,
+        selectedPlanId: String? = _uiState.selectedPlanId,
+        exercises: List<Exercise> = _uiState.exercises
+    ) {
+        val normalizedPlans = sanitizePlans(plans)
+        val currentPlanId = normalizedPlans.firstOrNull { it.isCurrent }?.id
+        val resolvedSelection = selectedPlanId
+            ?.takeIf { id -> normalizedPlans.any { it.id == id } }
+            ?: currentPlanId
+            ?: normalizedPlans.firstOrNull()?.id
+
+        _uiState = WorkoutsUiState(
+            plans = normalizedPlans,
+            selectedPlanId = resolvedSelection,
+            currentPlanId = currentPlanId,
+            exercises = exercises
+        )
+    }
+
+    private fun sanitizePlans(plans: List<WorkoutPlan>): List<WorkoutPlan> {
+        var currentAssigned = false
+        return plans.map { plan ->
+            when {
+                plan.isCurrent && !currentAssigned -> {
+                    currentAssigned = true
+                    plan
+                }
+                plan.isCurrent -> plan.copy(isCurrent = false)
+                else -> plan
+            }
+        }
+    }
+
+    private fun nextExerciseSeed(exercises: List<Exercise>): Int {
+        val next = (exercises.maxOfOrNull { it.id.number } ?: 0) + 1
+        return next.coerceAtLeast(1)
+    }
+
+    private fun resolveInitialSelection(plans: List<WorkoutPlan>): String? {
+        return plans.firstOrNull { it.isCurrent }?.id ?: plans.firstOrNull()?.id
+    }
+}
+
+@Composable
+fun rememberWorkoutsState(
+    initialPlans: List<WorkoutPlan> = emptyList(),
+    initialExercises: List<Exercise> = emptyList()
+): WorkoutsState = remember { WorkoutsState(initialPlans, initialExercises) }
+
 @Composable
 fun WorkoutsScreen(
-    plans: List<WorkoutPlan>,
+    state: WorkoutsUiState,
     onSettingsClick: () -> Unit,
+    onSelectPlan: (String) -> Unit,
+    onEditPlan: (String) -> Unit,
+    onSetCurrent: (String) -> Unit,
     onCreatePlan: () -> Unit,
-    onEditPlan: (WorkoutPlan) -> Unit,
-    onSetCurrent: (WorkoutPlan) -> Unit,
     onExercisesManage: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
 
-    var selectedIndex by rememberSaveable { mutableStateOf(-1) }
-    LaunchedEffect(plans) {
-        selectedIndex = when {
-            plans.isEmpty() -> -1
-            else -> plans.indexOfFirst { it.isCurrent }.takeIf { it >= 0 } ?: 0
-        }
-    }
-
     Column(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(horizontal = 24.dp, vertical = 32.dp),
+            .statusBarsPadding()
+            .padding(horizontal = 24.dp)
+            .padding(top = 12.dp, bottom = 32.dp)
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(32.dp)
     ) {
         WorkoutsHeader(onSettingsClick = onSettingsClick)
 
-        if (plans.isEmpty()) {
+        if (state.plans.isEmpty()) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 tonalElevation = 6.dp,
@@ -104,15 +320,10 @@ fun WorkoutsScreen(
                 }
             }
         } else {
-            val safeIndex = selectedIndex.coerceIn(plans.indices)
-            if (safeIndex != selectedIndex) {
-                selectedIndex = safeIndex
-            }
-
             WorkoutCarousel(
-                plans = plans,
-                selectedIndex = safeIndex,
-                onSelected = { index -> selectedIndex = index },
+                plans = state.plans,
+                selectedPlanId = state.selectedPlanId,
+                onSelected = onSelectPlan,
                 onEditPlan = onEditPlan,
                 onSetCurrent = onSetCurrent
             )
@@ -120,7 +331,10 @@ fun WorkoutsScreen(
 
         CreatePlanButton(onCreatePlan = onCreatePlan)
 
-        ExercisesSection(onManageExercises = onExercisesManage)
+        ExercisesSection(
+            exercises = state.exercises,
+            onManageExercises = onExercisesManage
+        )
     }
 }
 
@@ -149,10 +363,10 @@ private fun WorkoutsHeader(onSettingsClick: () -> Unit, modifier: Modifier = Mod
 @Composable
 private fun WorkoutCarousel(
     plans: List<WorkoutPlan>,
-    selectedIndex: Int,
-    onSelected: (Int) -> Unit,
-    onEditPlan: (WorkoutPlan) -> Unit,
-    onSetCurrent: (WorkoutPlan) -> Unit,
+    selectedPlanId: String?,
+    onSelected: (String) -> Unit,
+    onEditPlan: (String) -> Unit,
+    onSetCurrent: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyRow(
@@ -161,7 +375,7 @@ private fun WorkoutCarousel(
         horizontalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         itemsIndexed(plans, key = { _, plan -> plan.id }) { index, plan ->
-            val isSelected = index == selectedIndex
+            val isSelected = plan.id == selectedPlanId || (selectedPlanId == null && index == 0)
             val targetWidth by animateDpAsState(targetValue = if (isSelected) 296.dp else 148.dp, label = "cardWidth")
             val targetHeight by animateDpAsState(targetValue = if (isSelected) 256.dp else 188.dp, label = "cardHeight")
 
@@ -169,7 +383,7 @@ private fun WorkoutCarousel(
                 modifier = Modifier
                     .width(targetWidth)
                     .height(targetHeight)
-                    .clickable { onSelected(index) },
+                    .clickable { onSelected(plan.id) },
                 shape = MaterialTheme.shapes.extraLarge
             ) {
                 if (isSelected) {
@@ -189,8 +403,8 @@ private fun WorkoutCarousel(
 @Composable
 private fun WorkoutLargeCardContent(
     plan: WorkoutPlan,
-    onEditPlan: (WorkoutPlan) -> Unit,
-    onSetCurrent: (WorkoutPlan) -> Unit,
+    onEditPlan: (String) -> Unit,
+    onSetCurrent: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -234,19 +448,18 @@ private fun WorkoutLargeCardContent(
         ) {
             Spacer(modifier = Modifier.weight(1f))
 
-            OutlinedButton(onClick = { onEditPlan(plan) }) {
+            OutlinedButton(onClick = { onEditPlan(plan.id) }) {
                 Text(text = stringResource(id = R.string.workouts_edit))
             }
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            val isCurrent = plan.isCurrent
             Button(
-                onClick = { onSetCurrent(plan) },
-                enabled = !isCurrent
+                onClick = { onSetCurrent(plan.id) },
+                enabled = !plan.isCurrent
             ) {
                 Text(
-                    text = if (isCurrent) {
+                    text = if (plan.isCurrent) {
                         stringResource(id = R.string.workouts_current)
                     } else {
                         stringResource(id = R.string.workouts_set_current)
@@ -309,7 +522,11 @@ private fun CreatePlanButton(onCreatePlan: () -> Unit, modifier: Modifier = Modi
 }
 
 @Composable
-private fun ExercisesSection(onManageExercises: () -> Unit, modifier: Modifier = Modifier) {
+private fun ExercisesSection(
+    exercises: List<Exercise>,
+    onManageExercises: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -337,19 +554,74 @@ private fun ExercisesSection(onManageExercises: () -> Unit, modifier: Modifier =
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = MaterialTheme.shapes.large
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = stringResource(id = R.string.workouts_exercises_empty_preview),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                if (exercises.isEmpty()) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shape = MaterialTheme.shapes.large
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = stringResource(id = R.string.workouts_exercises_empty_preview),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        exercises.take(3).forEach { exercise ->
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.large,
+                                tonalElevation = 2.dp
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            text = exercise.name,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = exercise.id.value,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    exercise.summary?.takeIf { it.isNotBlank() }?.let {
+                                        Text(
+                                            text = it,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (exercises.size > 3) {
+                            Text(
+                                text = stringResource(
+                                    id = R.string.workouts_exercises_more,
+                                    exercises.size - 3
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 
@@ -373,31 +645,43 @@ private fun ExercisesSection(onManageExercises: () -> Unit, modifier: Modifier =
 @Preview(showBackground = true)
 @Composable
 private fun WorkoutsScreenPreview() {
+    val previewState = WorkoutsUiState(
+        plans = listOf(
+            WorkoutPlan(
+                id = "plan-1",
+                name = "Strength Foundation",
+                subtitle = "4-week progressive plan",
+                description = "Build consistency with three focused strength days and optional mobility add-ons.",
+                isCurrent = true
+            ),
+            WorkoutPlan(
+                id = "plan-2",
+                name = "Mobility Reset",
+                subtitle = "Gentle daily flow"
+            ),
+            WorkoutPlan(
+                id = "plan-3",
+                name = "Endurance Builder",
+                subtitle = "Cardio-first approach"
+            )
+        ),
+        selectedPlanId = "plan-1",
+        currentPlanId = "plan-1",
+        exercises = listOf(
+            Exercise(ExerciseId.fromNumber(1), "Goblet Squat", "3 sets of 12"),
+            Exercise(ExerciseId.fromNumber(2), "Tempo Push-up", "3 sets of 8"),
+            Exercise(ExerciseId.fromNumber(3), "Dead Bug Hold", "45 seconds")
+        )
+    )
+
     GetOnUpTheme {
         WorkoutsScreen(
-            plans = listOf(
-                WorkoutPlan(
-                    id = "1",
-                    name = "Strength Foundation",
-                    subtitle = "4-week progressive plan",
-                    description = "Build consistency with three focused strength days and optional mobility add-ons.",
-                    isCurrent = true
-                ),
-                WorkoutPlan(
-                    id = "2",
-                    name = "Mobility Reset",
-                    subtitle = "Gentle daily flow"
-                ),
-                WorkoutPlan(
-                    id = "3",
-                    name = "Endurance Builder",
-                    subtitle = "Cardio first approach"
-                )
-            ),
+            state = previewState,
             onSettingsClick = {},
-            onCreatePlan = {},
+            onSelectPlan = {},
             onEditPlan = {},
             onSetCurrent = {},
+            onCreatePlan = {},
             onExercisesManage = {}
         )
     }

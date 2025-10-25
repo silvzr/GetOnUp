@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun GetOnUpApp() {
     var selectedDestination by rememberSaveable { mutableStateOf(GetOnUpDestination.Timeline) }
+    val workoutsState = rememberWorkoutsState()
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -74,12 +75,22 @@ private fun GetOnUpApp() {
                 GetOnUpDestination.Timeline -> PlaceholderScreen(titleRes = R.string.nav_performance)
                 GetOnUpDestination.Calendar -> PlaceholderScreen(titleRes = R.string.nav_calendar)
                 GetOnUpDestination.Workouts -> WorkoutsScreen(
-                    plans = emptyList(),
-                    onSettingsClick = {},
-                    onCreatePlan = {},
-                    onEditPlan = {},
-                    onSetCurrent = {},
-                    onExercisesManage = {}
+                    state = workoutsState.uiState,
+                    onSettingsClick = {
+                        workoutsState.requestSettings()
+                        workoutsState.consumeSettingsRequest()
+                    },
+                    onSelectPlan = workoutsState::selectPlan,
+                    onEditPlan = { planId ->
+                        workoutsState.requestPlanEdit(planId)
+                        workoutsState.consumePlanEditRequest()
+                    },
+                    onSetCurrent = workoutsState::setCurrentPlan,
+                    onCreatePlan = { workoutsState.createEmptyPlan() },
+                    onExercisesManage = {
+                        workoutsState.requestExerciseManagement()
+                        workoutsState.consumeExerciseManagementRequest()
+                    }
                 )
             }
         }
