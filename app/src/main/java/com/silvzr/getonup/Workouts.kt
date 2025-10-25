@@ -1,7 +1,7 @@
 package com.silvzr.getonup
 
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -45,6 +44,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -58,9 +58,12 @@ import com.silvzr.getonup.data.WorkoutsRepository
 import com.silvzr.getonup.ui.theme.GetOnUpTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Represents a workout plan rendered inside the carousel. */
 @Immutable
@@ -237,14 +240,15 @@ fun WorkoutsScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(scrollState),
-        verticalArrangement = Arrangement.spacedBy(32.dp)
+            .verticalScroll(scrollState)
+            .padding(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(28.dp)
     ) {
         WorkoutsHeader(
             onSettingsClick = onSettingsClick,
             modifier = Modifier
                 .statusBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 12.dp)
         )
 
         if (state.plans.isEmpty()) {
@@ -327,45 +331,77 @@ private fun WorkoutCarousel(
     if (plans.isEmpty()) return
 
     val density = LocalDensity.current
-    val listState = rememberLazyListState()
-    val selectedIndex = plans.indexOfFirst { it.id == selectedPlanId }.takeIf { it >= 0 } ?: 0
+    val planCount = plans.size
+    val selectedPlanIndex = plans.indexOfFirst { it.id == selectedPlanId }.takeIf { it >= 0 } ?: 0
+    val baseIndex = remember(planCount) {
+        if (planCount == 0) {
+            0
+        } else {
+            val half = Int.MAX_VALUE / 2
+            half - (half % planCount)
+        }
+    }
+    val initialIndex = if (planCount == 0) 0 else baseIndex + selectedPlanIndex
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
+    val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
     val selectedCardWidth = 320.dp
+    val selectedCardHeight = 260.dp
     val spacing = 20.dp
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val horizontalPadding = ((maxWidth - selectedCardWidth) / 2).coerceAtLeast(0.dp)
+        val horizontalPaddingPx = with(density) { horizontalPadding.toPx().roundToInt() }
 
-    LaunchedEffect(selectedIndex, plans.size, maxWidth) {
-            if (plans.isNotEmpty()) {
-                val offsetPx = with(density) { horizontalPadding.toPx() }
-                listState.animateScrollToItem(selectedIndex, -offsetPx.toInt())
+        LaunchedEffect(selectedPlanId, plans, planCount) {
+            if (planCount == 0) return@LaunchedEffect
+            val targetPlanIndex = plans.indexOfFirst { it.id == selectedPlanId }.takeIf { it >= 0 } ?: 0
+            val currentIndex = listState.firstVisibleItemIndex
+            val currentPlanIndex = if (planCount == 0) 0 else currentIndex % planCount
+            if (currentPlanIndex == targetPlanIndex) return@LaunchedEffect
+
+            val rawDelta = targetPlanIndex - currentPlanIndex
+            val forwardSteps = (rawDelta % planCount).let { if (it < 0) it + planCount else it }
+            val backwardSteps = forwardSteps - planCount
+            val delta = if (abs(forwardSteps) <= abs(backwardSteps)) forwardSteps else backwardSteps
+            val targetIndex = currentIndex + delta
+            listState.animateScrollToItem(targetIndex, -horizontalPaddingPx)
+        }
+
+        LaunchedEffect(planCount, plans) {
+            if (planCount == 0) return@LaunchedEffect
+            snapshotFlow { listState.isScrollInProgress }.collect { isScrolling ->
+                if (!isScrolling) {
+                    val layoutInfo = listState.layoutInfo
+                    val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+                    val closest = layoutInfo.visibleItemsInfo.minByOrNull { item ->
+                        val itemCenter = item.offset + item.size / 2
+                        abs(itemCenter - viewportCenter)
+                    } ?: return@collect
+                    val plan = plans[closest.index % planCount]
+                    if (plan.id != selectedPlanId) {
+                        onSelected(plan.id)
+                    }
+                }
             }
         }
 
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             state = listState,
+            flingBehavior = flingBehavior,
             contentPadding = PaddingValues(horizontal = horizontalPadding),
             horizontalArrangement = Arrangement.spacedBy(spacing)
         ) {
-            itemsIndexed(plans, key = { _, plan -> plan.id }) { index, plan ->
-                val isSelected = when {
-                    selectedPlanId == null && index == 0 -> true
-                    else -> plan.id == selectedPlanId
-                }
-                val targetWidth by animateDpAsState(
-                    targetValue = if (isSelected) selectedCardWidth else 220.dp,
-                    label = "cardWidth"
-                )
-                val targetHeight by animateDpAsState(
-                    targetValue = if (isSelected) 260.dp else 208.dp,
-                    label = "cardHeight"
-                )
-
+            items(count = Int.MAX_VALUE, key = { index ->
+                val plan = plans[index % planCount]
+                "${plan.id}-$index"
+            }) { index ->
+                val plan = plans[index % planCount]
+                val isSelected = plan.id == selectedPlanId
                 ElevatedCard(
                     modifier = Modifier
-                        .width(targetWidth)
-                        .height(targetHeight)
+                        .width(selectedCardWidth)
+                        .height(selectedCardHeight)
                         .clickable { onSelected(plan.id) },
                     shape = MaterialTheme.shapes.extraLarge
                 ) {
