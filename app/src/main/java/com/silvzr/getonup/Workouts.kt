@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -48,7 +49,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -63,7 +63,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.util.UUID
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /** Represents a workout plan rendered inside the carousel. */
 @Immutable
@@ -173,12 +172,7 @@ class WorkoutsState internal constructor(
 
     fun deletePlan(planId: String) {
         scope.launch {
-            val deletedWasCurrent = uiState.currentPlanId == planId
-            val fallbackPlanId = uiState.plans.firstOrNull { it.id != planId }?.id
             repository.deletePlan(planId)
-            if (deletedWasCurrent && fallbackPlanId != null) {
-                repository.setCurrentPlan(fallbackPlanId)
-            }
         }
         if (selectedPlanId.value == planId) {
             selectedPlanId.value = null
@@ -358,7 +352,6 @@ private fun WorkoutCarousel(
         return
     }
 
-    val density = LocalDensity.current
     val selectedPlanIndex = plans.indexOfFirst { it.id == selectedPlanId }.takeIf { it >= 0 } ?: 0
     val baseIndex = remember(planCount) {
         val half = Int.MAX_VALUE / 2
@@ -371,21 +364,24 @@ private fun WorkoutCarousel(
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val horizontalPadding = ((maxWidth - selectedCardWidth) / 2).coerceAtLeast(0.dp)
-        val horizontalPaddingPx = with(density) { horizontalPadding.toPx().roundToInt() }
 
-        LaunchedEffect(selectedPlanId, plans, planCount) {
+        LaunchedEffect(selectedPlanId, plans, planCount, horizontalPadding) {
             if (planCount == 0) return@LaunchedEffect
             val targetPlanIndex = plans.indexOfFirst { it.id == selectedPlanId }.takeIf { it >= 0 } ?: 0
             val currentIndex = listState.firstVisibleItemIndex
-            val currentPlanIndex = if (planCount == 0) 0 else currentIndex % planCount
-            if (currentPlanIndex == targetPlanIndex) return@LaunchedEffect
+            val currentPlanIndex = currentIndex % planCount
+            val desiredOffset = 0
+
+            if (currentPlanIndex == targetPlanIndex && listState.firstVisibleItemScrollOffset == desiredOffset) {
+                return@LaunchedEffect
+            }
 
             val rawDelta = targetPlanIndex - currentPlanIndex
             val forwardSteps = (rawDelta % planCount).let { if (it < 0) it + planCount else it }
             val backwardSteps = forwardSteps - planCount
             val delta = if (abs(forwardSteps) <= abs(backwardSteps)) forwardSteps else backwardSteps
             val targetIndex = currentIndex + delta
-            listState.animateScrollToItem(targetIndex, -horizontalPaddingPx)
+            listState.animateScrollToItem(targetIndex, desiredOffset)
         }
 
         LaunchedEffect(planCount, plans) {
@@ -419,23 +415,24 @@ private fun WorkoutCarousel(
             }) { index ->
                 val plan = plans[index % planCount]
                 val isSelected = plan.id == selectedPlanId
+                val cardShape = MaterialTheme.shapes.extraLarge
+                val cardModifier = Modifier
+                    .width(selectedCardWidth)
+                    .height(selectedCardHeight)
+                    .clickable { onSelected(plan.id) }
                 ElevatedCard(
-                    modifier = Modifier
-                        .width(selectedCardWidth)
-                        .height(selectedCardHeight)
-                        .clickable { onSelected(plan.id) },
-                    shape = MaterialTheme.shapes.extraLarge
+                    modifier = cardModifier,
+                    shape = cardShape,
+                    elevation = CardDefaults.elevatedCardElevation(
+                        defaultElevation = if (isSelected) 12.dp else 4.dp
+                    )
                 ) {
-                    if (isSelected) {
-                        WorkoutLargeCardContent(
-                            plan = plan,
-                            onEditPlan = onEditPlan,
-                            onDeletePlan = onDeletePlan,
-                            onSetCurrent = onSetCurrent
-                        )
-                    } else {
-                        WorkoutSmallCardContent(plan = plan)
-                    }
+                    WorkoutLargeCardContent(
+                        plan = plan,
+                        onEditPlan = onEditPlan,
+                        onDeletePlan = onDeletePlan,
+                        onSetCurrent = onSetCurrent
+                    )
                 }
             }
         }
@@ -518,35 +515,6 @@ private fun WorkoutLargeCardContent(
                     }
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun WorkoutSmallCardContent(plan: WorkoutPlan, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = plan.name,
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        plan.subtitle?.takeIf { it.isNotBlank() }?.let {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
     }
 }
