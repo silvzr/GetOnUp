@@ -19,10 +19,8 @@ import androidx.compose.material.icons.outlined.Timeline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +35,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,27 +44,54 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             GetOnUpTheme {
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    containerColor = MaterialTheme.colorScheme.background,
-                    contentColor = MaterialTheme.colorScheme.onBackground,
-                    bottomBar = { GetOnUpNavigationBar() }
-                ) { innerPadding ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                    )
-                }
+                GetOnUpApp()
             }
         }
     }
 }
 
 @Composable
-fun GetOnUpNavigationBar(modifier: Modifier = Modifier) {
+private fun GetOnUpApp() {
     var selectedDestination by rememberSaveable { mutableStateOf(GetOnUpDestination.Timeline) }
 
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
+        bottomBar = {
+            GetOnUpNavigationBar(
+                selectedDestination = selectedDestination,
+                onDestinationSelected = { selectedDestination = it }
+            )
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            when (selectedDestination) {
+                GetOnUpDestination.Timeline -> PlaceholderScreen(titleRes = R.string.nav_performance)
+                GetOnUpDestination.Calendar -> PlaceholderScreen(titleRes = R.string.nav_calendar)
+                GetOnUpDestination.Workouts -> WorkoutsScreen(
+                    plans = emptyList(),
+                    onSettingsClick = {},
+                    onCreatePlan = {},
+                    onEditPlan = {},
+                    onSetCurrent = {},
+                    onExercisesManage = {}
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GetOnUpNavigationBar(
+    selectedDestination: GetOnUpDestination,
+    onDestinationSelected: (GetOnUpDestination) -> Unit,
+    modifier: Modifier = Modifier
+) {
     NavigationBar(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -78,7 +105,7 @@ fun GetOnUpNavigationBar(modifier: Modifier = Modifier) {
 
             NavigationBarItem(
                 selected = isSelected,
-                onClick = { selectedDestination = destination },
+                onClick = { onDestinationSelected(destination) },
                 icon = {
                     Icon(
                         imageVector = iconVector,
@@ -131,12 +158,26 @@ private enum class GetOnUpDestination(
     )
 }
 
+@Composable
+private fun PlaceholderScreen(@StringRes titleRes: Int, modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(
+            text = stringResource(id = titleRes),
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+    }
+}
+
 @Preview(showBackground = true)
 @Composable
 private fun NavigationBarPreview() {
     GetOnUpTheme {
         Surface(color = MaterialTheme.colorScheme.background) {
-            GetOnUpNavigationBar()
+            GetOnUpNavigationBar(
+                selectedDestination = GetOnUpDestination.Workouts,
+                onDestinationSelected = {}
+            )
         }
     }
 }

@@ -4,4 +4,15 @@
     <string name="nav_performance">Performance</string>
     <string name="nav_calendar">Calendar</string>
     <string name="nav_workouts">Workouts</string>
+    <string name="workouts_title">Workouts</string>
+    <string name="workouts_settings_cd">Open workout settings</string>
+    <string name="workouts_no_plans">No workouts available</string>
+    <string name="workouts_edit">Edit</string>
+    <string name="workouts_set_current">Set as current</string>
+    <string name="workouts_current">Current</string>
+    <string name="workouts_create_plan">Create a workout plan</string>
+    <string name="workouts_exercises_title">Exercises</string>
+    <string name="workouts_exercises_preview">Preview your exercise lineup and manage details when you are ready.</string>
+    <string name="workouts_exercises_manage">Manage exercises</string>
+    <string name="workouts_exercises_empty_preview">No exercises to preview yet.</string>
 </resources>
