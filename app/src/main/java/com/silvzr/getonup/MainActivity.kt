@@ -6,11 +6,13 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.Timeline
@@ -30,8 +32,11 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.silvzr.getonup.ui.theme.GetOnUpTheme
 import androidx.core.view.WindowCompat
 import androidx.annotation.StringRes
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,38 +67,68 @@ fun GetOnUpNavigationBar(modifier: Modifier = Modifier) {
 
     NavigationBar(
         modifier = modifier,
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = NavigationBarDefaults.Elevation
     ) {
         GetOnUpDestination.entries.forEach { destination ->
             val label = stringResource(id = destination.labelRes)
+            val isSelected = destination == selectedDestination
+            val iconVector = if (isSelected) destination.selectedIcon ?: destination.unselectedIcon else destination.unselectedIcon
+            val iconSize = if (isSelected) destination.selectedIconSize else destination.unselectedIconSize
 
             NavigationBarItem(
-                selected = destination == selectedDestination,
+                selected = isSelected,
                 onClick = { selectedDestination = destination },
                 icon = {
                     Icon(
-                        imageVector = destination.icon,
-                        contentDescription = label
+                        imageVector = iconVector,
+                        contentDescription = label,
+                        modifier = Modifier.size(iconSize)
                     )
                 },
                 label = {
                     Text(
                         text = label,
-                        fontWeight = if (destination == selectedDestination) FontWeight.SemiBold else FontWeight.Normal
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
                     )
                 },
-                alwaysShowLabel = true
+                alwaysShowLabel = true,
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    indicatorColor = MaterialTheme.colorScheme.secondaryContainer
+                )
             )
         }
     }
 }
 
-private enum class GetOnUpDestination(@StringRes val labelRes: Int, val icon: ImageVector) {
-    Timeline(R.string.nav_performance, Icons.Outlined.Timeline),
-    Calendar(R.string.nav_calendar, Icons.Outlined.CalendarToday),
-    Workouts(R.string.nav_workouts, Icons.Outlined.FitnessCenter)
+private enum class GetOnUpDestination(
+    @StringRes val labelRes: Int,
+    val selectedIcon: ImageVector?,
+    val unselectedIcon: ImageVector,
+    val selectedIconSize: Dp = 24.dp,
+    val unselectedIconSize: Dp = 24.dp
+) {
+    Timeline(
+        R.string.nav_performance,
+        selectedIcon = null,
+        unselectedIcon = Icons.Outlined.Timeline,
+        selectedIconSize = 26.dp
+    ),
+    Calendar(
+        R.string.nav_calendar,
+        selectedIcon = Icons.Filled.CalendarToday,
+        unselectedIcon = Icons.Outlined.CalendarToday
+    ),
+    Workouts(
+        R.string.nav_workouts,
+        selectedIcon = null,
+        unselectedIcon = Icons.Outlined.FitnessCenter,
+        selectedIconSize = 26.dp
+    )
 }
 
 @Preview(showBackground = true)
