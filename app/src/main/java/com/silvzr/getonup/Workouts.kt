@@ -248,7 +248,7 @@ fun WorkoutsScreen(
             onSettingsClick = onSettingsClick,
             modifier = Modifier
                 .statusBarsPadding()
-                .padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 12.dp)
+                .padding(start = 24.dp, end = 24.dp, bottom = 12.dp)
         )
 
         if (state.plans.isEmpty()) {
@@ -328,24 +328,45 @@ private fun WorkoutCarousel(
     onSetCurrent: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (plans.isEmpty()) return
-
-    val density = LocalDensity.current
     val planCount = plans.size
-    val selectedPlanIndex = plans.indexOfFirst { it.id == selectedPlanId }.takeIf { it >= 0 } ?: 0
-    val baseIndex = remember(planCount) {
-        if (planCount == 0) {
-            0
-        } else {
-            val half = Int.MAX_VALUE / 2
-            half - (half % planCount)
-        }
-    }
-    val initialIndex = if (planCount == 0) 0 else baseIndex + selectedPlanIndex
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
-    val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
+    if (planCount == 0) return
+
     val selectedCardWidth = 320.dp
     val selectedCardHeight = 260.dp
+
+    if (planCount == 1) {
+        val plan = plans.first()
+        Box(
+            modifier = modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            ElevatedCard(
+                modifier = Modifier
+                    .width(selectedCardWidth)
+                    .height(selectedCardHeight)
+                    .clickable { onSelected(plan.id) },
+                shape = MaterialTheme.shapes.extraLarge
+            ) {
+                WorkoutLargeCardContent(
+                    plan = plan,
+                    onEditPlan = onEditPlan,
+                    onDeletePlan = onDeletePlan,
+                    onSetCurrent = onSetCurrent
+                )
+            }
+        }
+        return
+    }
+
+    val density = LocalDensity.current
+    val selectedPlanIndex = plans.indexOfFirst { it.id == selectedPlanId }.takeIf { it >= 0 } ?: 0
+    val baseIndex = remember(planCount) {
+        val half = Int.MAX_VALUE / 2
+        half - (half % planCount)
+    }
+    val initialIndex = baseIndex + selectedPlanIndex
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
+    val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
     val spacing = 20.dp
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
