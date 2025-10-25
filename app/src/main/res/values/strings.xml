@@ -16,4 +16,5 @@
     <string name="workouts_exercises_manage">Manage exercises</string>
     <string name="workouts_exercises_empty_preview">No exercises to preview yet.</string>
     <string name="workouts_exercises_more">+%1$d more</string>
+    <string name="workouts_delete_plan">Delete workout plan</string>
 </resources>

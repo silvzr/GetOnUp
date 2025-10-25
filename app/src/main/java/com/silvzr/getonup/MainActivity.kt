@@ -85,8 +85,9 @@ private fun GetOnUpApp() {
                         workoutsState.requestPlanEdit(planId)
                         workoutsState.consumePlanEditRequest()
                     },
+                    onDeletePlan = workoutsState::deletePlan,
                     onSetCurrent = workoutsState::setCurrentPlan,
-                    onCreatePlan = { workoutsState.createEmptyPlan() },
+                    onCreatePlan = workoutsState::createEmptyPlan,
                     onExercisesManage = {
                         workoutsState.requestExerciseManagement()
                         workoutsState.consumeExerciseManagementRequest()

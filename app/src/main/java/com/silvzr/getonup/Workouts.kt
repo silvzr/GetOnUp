@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,16 +18,18 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowForward
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,20 +38,29 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.silvzr.getonup.data.WorkoutsDatabase
+import com.silvzr.getonup.data.WorkoutsRepository
 import com.silvzr.getonup.ui.theme.GetOnUpTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import java.util.UUID
-import kotlin.math.max
 
 /** Represents a workout plan rendered inside the carousel. */
 @Immutable
@@ -99,152 +111,88 @@ data class WorkoutsUiState(
 
 /** Mutable holder for workouts-related state, responsible for id generation and user actions. */
 @Stable
-class WorkoutsState(
-    initialPlans: List<WorkoutPlan> = emptyList(),
-    initialExercises: List<Exercise> = emptyList()
+class WorkoutsState internal constructor(
+    private val repository: WorkoutsRepository,
+    private val scope: CoroutineScope
 ) {
-    private var nextExerciseNumber: Int = nextExerciseSeed(initialExercises)
+    private val selectedPlanId = MutableStateFlow<String?>(null)
 
-    private var _uiState by mutableStateOf(
-        WorkoutsUiState(
-            plans = initialPlans,
-            selectedPlanId = resolveInitialSelection(initialPlans),
-            currentPlanId = initialPlans.firstOrNull { it.isCurrent }?.id,
-            exercises = initialExercises
-        )
-    )
+    private var _uiState by mutableStateOf(WorkoutsUiState())
     val uiState: WorkoutsUiState get() = _uiState
 
-    var isSettingsRequested by mutableStateOf(false)
-        private set
-    var planEditRequest: String? by mutableStateOf(null)
-        private set
-    var isExerciseManagementRequested by mutableStateOf(false)
-        private set
+    init {
+        scope.launch {
+            combine(
+                repository.plans,
+                repository.exercises,
+                selectedPlanId
+            ) { plans, exercises, selectedId ->
+                val sanitizedPlans = sanitizePlans(plans)
+                val currentId = sanitizedPlans.firstOrNull { it.isCurrent }?.id
+                val resolvedSelection = selectedId?.takeIf { id -> sanitizedPlans.any { it.id == id } }
+                    ?: currentId
+                    ?: sanitizedPlans.firstOrNull()?.id
 
-    fun updatePlans(plans: List<WorkoutPlan>) {
-        val selected = _uiState.selectedPlanId
-        refreshState(
-            plans = plans,
-            selectedPlanId = plans.takeIf { it.any { plan -> plan.id == selected } }?.let { selected }
-                ?: resolveInitialSelection(plans)
-        )
-    }
-
-    fun upsertPlan(plan: WorkoutPlan) {
-        val updated = _uiState.plans.toMutableList().apply {
-            val index = indexOfFirst { it.id == plan.id }
-            if (index >= 0) {
-                this[index] = plan
-            } else {
-                add(plan)
+                WorkoutsUiState(
+                    plans = sanitizedPlans,
+                    selectedPlanId = resolvedSelection,
+                    currentPlanId = currentId,
+                    exercises = exercises
+                ) to resolvedSelection
+            }.collect { (state, resolvedSelection) ->
+                _uiState = state
+                if (selectedPlanId.value != resolvedSelection) {
+                    selectedPlanId.value = resolvedSelection
+                }
             }
         }
-        refreshState(
-            plans = updated,
-            selectedPlanId = plan.id
-        )
-    }
-
-    fun removePlan(planId: String) {
-        refreshState(plans = _uiState.plans.filterNot { it.id == planId })
     }
 
     fun selectPlan(planId: String) {
-        if (_uiState.plans.any { it.id == planId }) {
-            refreshState(selectedPlanId = planId)
-        }
+        selectedPlanId.value = planId
     }
 
     fun setCurrentPlan(planId: String) {
-        if (_uiState.plans.none { it.id == planId }) return
+        scope.launch { repository.setCurrentPlan(planId) }
+        selectedPlanId.value = planId
+    }
 
-        val updatedPlans = _uiState.plans.map {
-            if (it.id == planId) it.copy(isCurrent = true) else it.copy(isCurrent = false)
+    fun createEmptyPlan() {
+        scope.launch {
+            val plan = WorkoutPlan(
+                name = "Untitled plan",
+                isCurrent = uiState.plans.isEmpty()
+            )
+            repository.upsertPlan(plan)
+            selectedPlanId.value = plan.id
         }
-        refreshState(
-            plans = updatedPlans,
-            selectedPlanId = planId
-        )
     }
 
-    fun requestSettings() {
-        isSettingsRequested = true
-    }
-
-    fun consumeSettingsRequest() {
-        isSettingsRequested = false
-    }
-
-    fun requestPlanEdit(planId: String) {
-        planEditRequest = planId
-    }
-
-    fun consumePlanEditRequest() {
-        planEditRequest = null
-    }
-
-    fun requestExerciseManagement() {
-        isExerciseManagementRequested = true
-    }
-
-    fun consumeExerciseManagementRequest() {
-        isExerciseManagementRequested = false
-    }
-
-    fun createEmptyPlan(): WorkoutPlan {
-        val newPlan = WorkoutPlan(
-            name = "Untitled plan",
-            subtitle = null,
-            description = null,
-            isCurrent = _uiState.plans.isEmpty()
-        )
-        upsertPlan(newPlan)
-        return newPlan
-    }
-
-    fun updateExercises(exercises: List<Exercise>) {
-        nextExerciseNumber = max(nextExerciseSeed(exercises), nextExerciseNumber)
-        refreshState(exercises = exercises)
-    }
-
-    fun addExercise(name: String, summary: String? = null): Exercise {
-        val id = generateExerciseId()
-        val exercise = Exercise(id = id, name = name, summary = summary)
-        refreshState(exercises = _uiState.exercises + exercise)
-        return exercise
-    }
-
-    fun deleteExercise(id: ExerciseId) {
-        refreshState(exercises = _uiState.exercises.filterNot { it.id == id })
-    }
-
-    fun generateExerciseId(): ExerciseId {
-        check(nextExerciseNumber <= ExerciseId.MAX_VALUE) {
-            "Maximum number of exercises (%d) reached".format(ExerciseId.MAX_VALUE)
+    fun deletePlan(planId: String) {
+        scope.launch {
+            val deletedWasCurrent = uiState.currentPlanId == planId
+            val fallbackPlanId = uiState.plans.firstOrNull { it.id != planId }?.id
+            repository.deletePlan(planId)
+            if (deletedWasCurrent && fallbackPlanId != null) {
+                repository.setCurrentPlan(fallbackPlanId)
+            }
         }
-        return ExerciseId.fromNumber(nextExerciseNumber++)
+        if (selectedPlanId.value == planId) {
+            selectedPlanId.value = null
+        }
     }
 
-    private fun refreshState(
-        plans: List<WorkoutPlan> = _uiState.plans,
-        selectedPlanId: String? = _uiState.selectedPlanId,
-        exercises: List<Exercise> = _uiState.exercises
-    ) {
-        val normalizedPlans = sanitizePlans(plans)
-        val currentPlanId = normalizedPlans.firstOrNull { it.isCurrent }?.id
-        val resolvedSelection = selectedPlanId
-            ?.takeIf { id -> normalizedPlans.any { it.id == id } }
-            ?: currentPlanId
-            ?: normalizedPlans.firstOrNull()?.id
+    fun requestSettings() { /* Placeholder to hook real flow later */ }
 
-        _uiState = WorkoutsUiState(
-            plans = normalizedPlans,
-            selectedPlanId = resolvedSelection,
-            currentPlanId = currentPlanId,
-            exercises = exercises
-        )
-    }
+    fun consumeSettingsRequest() { /* Placeholder */ }
+
+    fun requestPlanEdit(planId: String) { /* Placeholder */ }
+
+    fun consumePlanEditRequest() { /* Placeholder */ }
+
+    fun requestExerciseManagement() { /* Placeholder */ }
+
+    fun consumeExerciseManagementRequest() { /* Placeholder */ }
 
     private fun sanitizePlans(plans: List<WorkoutPlan>): List<WorkoutPlan> {
         var currentAssigned = false
@@ -259,22 +207,18 @@ class WorkoutsState(
             }
         }
     }
-
-    private fun nextExerciseSeed(exercises: List<Exercise>): Int {
-        val next = (exercises.maxOfOrNull { it.id.number } ?: 0) + 1
-        return next.coerceAtLeast(1)
-    }
-
-    private fun resolveInitialSelection(plans: List<WorkoutPlan>): String? {
-        return plans.firstOrNull { it.isCurrent }?.id ?: plans.firstOrNull()?.id
-    }
 }
 
 @Composable
-fun rememberWorkoutsState(
-    initialPlans: List<WorkoutPlan> = emptyList(),
-    initialExercises: List<Exercise> = emptyList()
-): WorkoutsState = remember { WorkoutsState(initialPlans, initialExercises) }
+fun rememberWorkoutsState(): WorkoutsState {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val repository = remember {
+        val database = WorkoutsDatabase.getInstance(context)
+        WorkoutsRepository(database.workoutsDao())
+    }
+    return remember(repository, scope) { WorkoutsState(repository, scope) }
+}
 
 @Composable
 fun WorkoutsScreen(
@@ -282,6 +226,7 @@ fun WorkoutsScreen(
     onSettingsClick: () -> Unit,
     onSelectPlan: (String) -> Unit,
     onEditPlan: (String) -> Unit,
+    onDeletePlan: (String) -> Unit,
     onSetCurrent: (String) -> Unit,
     onCreatePlan: () -> Unit,
     onExercisesManage: () -> Unit,
@@ -292,17 +237,21 @@ fun WorkoutsScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 24.dp)
-            .padding(top = 12.dp, bottom = 32.dp)
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(32.dp)
     ) {
-        WorkoutsHeader(onSettingsClick = onSettingsClick)
+        WorkoutsHeader(
+            onSettingsClick = onSettingsClick,
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+        )
 
         if (state.plans.isEmpty()) {
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .padding(horizontal = 24.dp)
+                    .fillMaxWidth(),
                 tonalElevation = 6.dp,
                 shape = MaterialTheme.shapes.extraLarge
             ) {
@@ -325,15 +274,20 @@ fun WorkoutsScreen(
                 selectedPlanId = state.selectedPlanId,
                 onSelected = onSelectPlan,
                 onEditPlan = onEditPlan,
+                onDeletePlan = onDeletePlan,
                 onSetCurrent = onSetCurrent
             )
         }
 
-        CreatePlanButton(onCreatePlan = onCreatePlan)
+        CreatePlanButton(
+            onCreatePlan = onCreatePlan,
+            modifier = Modifier.padding(horizontal = 24.dp)
+        )
 
         ExercisesSection(
             exercises = state.exercises,
-            onManageExercises = onExercisesManage
+            onManageExercises = onExercisesManage,
+            modifier = Modifier.padding(horizontal = 24.dp)
         )
     }
 }
@@ -366,34 +320,65 @@ private fun WorkoutCarousel(
     selectedPlanId: String?,
     onSelected: (String) -> Unit,
     onEditPlan: (String) -> Unit,
+    onDeletePlan: (String) -> Unit,
     onSetCurrent: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    LazyRow(
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 32.dp),
-        horizontalArrangement = Arrangement.spacedBy(24.dp)
-    ) {
-        itemsIndexed(plans, key = { _, plan -> plan.id }) { index, plan ->
-            val isSelected = plan.id == selectedPlanId || (selectedPlanId == null && index == 0)
-            val targetWidth by animateDpAsState(targetValue = if (isSelected) 296.dp else 148.dp, label = "cardWidth")
-            val targetHeight by animateDpAsState(targetValue = if (isSelected) 256.dp else 188.dp, label = "cardHeight")
+    if (plans.isEmpty()) return
 
-            ElevatedCard(
-                modifier = Modifier
-                    .width(targetWidth)
-                    .height(targetHeight)
-                    .clickable { onSelected(plan.id) },
-                shape = MaterialTheme.shapes.extraLarge
-            ) {
-                if (isSelected) {
-                    WorkoutLargeCardContent(
-                        plan = plan,
-                        onEditPlan = onEditPlan,
-                        onSetCurrent = onSetCurrent
-                    )
-                } else {
-                    WorkoutSmallCardContent(plan = plan)
+    val density = LocalDensity.current
+    val listState = rememberLazyListState()
+    val selectedIndex = plans.indexOfFirst { it.id == selectedPlanId }.takeIf { it >= 0 } ?: 0
+    val selectedCardWidth = 320.dp
+    val spacing = 20.dp
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val horizontalPadding = ((maxWidth - selectedCardWidth) / 2).coerceAtLeast(0.dp)
+
+    LaunchedEffect(selectedIndex, plans.size, maxWidth) {
+            if (plans.isNotEmpty()) {
+                val offsetPx = with(density) { horizontalPadding.toPx() }
+                listState.animateScrollToItem(selectedIndex, -offsetPx.toInt())
+            }
+        }
+
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            state = listState,
+            contentPadding = PaddingValues(horizontal = horizontalPadding),
+            horizontalArrangement = Arrangement.spacedBy(spacing)
+        ) {
+            itemsIndexed(plans, key = { _, plan -> plan.id }) { index, plan ->
+                val isSelected = when {
+                    selectedPlanId == null && index == 0 -> true
+                    else -> plan.id == selectedPlanId
+                }
+                val targetWidth by animateDpAsState(
+                    targetValue = if (isSelected) selectedCardWidth else 220.dp,
+                    label = "cardWidth"
+                )
+                val targetHeight by animateDpAsState(
+                    targetValue = if (isSelected) 260.dp else 208.dp,
+                    label = "cardHeight"
+                )
+
+                ElevatedCard(
+                    modifier = Modifier
+                        .width(targetWidth)
+                        .height(targetHeight)
+                        .clickable { onSelected(plan.id) },
+                    shape = MaterialTheme.shapes.extraLarge
+                ) {
+                    if (isSelected) {
+                        WorkoutLargeCardContent(
+                            plan = plan,
+                            onEditPlan = onEditPlan,
+                            onDeletePlan = onDeletePlan,
+                            onSetCurrent = onSetCurrent
+                        )
+                    } else {
+                        WorkoutSmallCardContent(plan = plan)
+                    }
                 }
             }
         }
@@ -404,13 +389,14 @@ private fun WorkoutCarousel(
 private fun WorkoutLargeCardContent(
     plan: WorkoutPlan,
     onEditPlan: (String) -> Unit,
+    onDeletePlan: (String) -> Unit,
     onSetCurrent: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(top = 24.dp, start = 24.dp, end = 24.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -443,16 +429,25 @@ private fun WorkoutLargeCardContent(
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            FilledTonalIconButton(onClick = { onDeletePlan(plan.id) }) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = stringResource(id = R.string.workouts_delete_plan)
+                )
+            }
+
             Spacer(modifier = Modifier.weight(1f))
 
             OutlinedButton(onClick = { onEditPlan(plan.id) }) {
                 Text(text = stringResource(id = R.string.workouts_edit))
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
             Button(
                 onClick = { onSetCurrent(plan.id) },
@@ -528,7 +523,8 @@ private fun ExercisesSection(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
@@ -625,7 +621,7 @@ private fun ExercisesSection(
                     }
                 }
 
-                FilledTonalButton(
+                OutlinedButton(
                     onClick = onManageExercises,
                     modifier = Modifier.align(Alignment.End),
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp)
@@ -680,6 +676,7 @@ private fun WorkoutsScreenPreview() {
             onSettingsClick = {},
             onSelectPlan = {},
             onEditPlan = {},
+            onDeletePlan = {},
             onSetCurrent = {},
             onCreatePlan = {},
             onExercisesManage = {}
