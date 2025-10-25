@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -235,15 +234,15 @@ fun WorkoutsScreen(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(bottom = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(28.dp)
+            .padding(bottom = 32.dp)
     ) {
         WorkoutsHeader(
             onSettingsClick = onSettingsClick,
             modifier = Modifier
-                .statusBarsPadding()
-                .padding(start = 24.dp, end = 24.dp, bottom = 12.dp)
+                .padding(start = 24.dp, end = 24.dp, bottom = 4.dp)
         )
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         if (state.plans.isEmpty()) {
             Surface(
@@ -277,10 +276,14 @@ fun WorkoutsScreen(
             )
         }
 
+        Spacer(modifier = Modifier.height(28.dp))
+
         CreatePlanButton(
             onCreatePlan = onCreatePlan,
             modifier = Modifier.padding(horizontal = 24.dp)
         )
+
+        Spacer(modifier = Modifier.height(28.dp))
 
         ExercisesSection(
             exercises = state.exercises,
