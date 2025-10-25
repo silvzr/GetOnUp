@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">GetOnUp</string>
-    <string name="nav_timeline">Timeline</string>
+    <string name="nav_performance">Performance</string>
     <string name="nav_calendar">Calendar</string>
     <string name="nav_workouts">Workouts</string>
-    <string name="nav_create_workout">Create workout</string>
 </resources>
